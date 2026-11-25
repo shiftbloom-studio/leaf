@@ -100,10 +100,13 @@ export function fmtSize(n: number) {
 const AI_TRAINING_BOTS = ["GPTBot", "ClaudeBot", "anthropic-ai", "CCBot", "Google-Extended", "Applebot-Extended", "Bytespider", "Amazonbot", "meta-externalagent", "cohere-ai", "MistralAI-Training", "Diffbot"];
 export const robotsTxt = (origin: string) =>
   [
-    "# Pastes are private links and are not meant to be indexed. Training AI models on this site is not allowed.",
+    "# Pastes are private links and are not meant to be indexed. Search engines and AI answer engines may read",
+    "# the start page; training AI models on this site is not allowed.",
     "User-agent: *",
-    "Content-Signal: search=yes, ai-input=no, ai-train=no",
+    "Content-Signal: search=yes, ai-input=yes, ai-train=no",
     "Allow: /$",
+    "Allow: /llms.txt",
+    "Allow: /og.png",
     "Allow: /privacy",
     "Allow: /imprint",
     "Allow: /datenschutz",

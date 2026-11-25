@@ -4,9 +4,10 @@
  * D1 holds paste metadata and named tokens, R2 holds the text, and an hourly cron deletes what has expired.
  */
 import { handleAsset } from "./assets";
+import OG_PNG from "./og.png";
 import { brandFrom } from "./brand";
 import { detectLanguage, highlightLines, LANGUAGES, normalizeLang } from "./highlight";
-import { burnGatePage, configureUi, createdPage, deleteConfirmPage, deletedPage, homePage, messagePage, notFoundPage, viewPage, type Limits, type PasteMeta } from "./html";
+import { burnGatePage, configureUi, createdPage, deleteConfirmPage, deletedPage, homePage, llmsTxt, messagePage, notFoundPage, viewPage, type Limits, type PasteMeta } from "./html";
 import { LEGAL_PATHS, legalPage, parseLegal } from "./legal";
 import {
   byteLength, cleanContent, expirySeconds, ID_LENGTH, ID_RE, isNamedToken, lineCount, MASTER_OWNER, randomString, requestToken, robotsTxt,
@@ -339,6 +340,8 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   if (path === "/robots.txt") return new Response(robotsTxt(url.origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
   if (path === "/sitemap.xml")
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${url.origin}/</loc></url></urlset>\n`, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
+  if (path === "/llms.txt" && get) return new Response(llmsTxt(url.origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
+  if (path === "/og.png" && get) return new Response(OG_PNG, { headers: { "content-type": "image/png", "cache-control": "public, max-age=604800" } });
   if (path === "/health") return json({ ok: true });
   if (get && (path.startsWith("/assets/") || path.startsWith("/favicon"))) {
     const a = await handleAsset(req, ctx);
@@ -398,12 +401,12 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   return html(notFoundPage(), 404);
 }
 
-const INDEXABLE = new Set(["/", "/robots.txt", "/sitemap.xml", "/favicon.svg", "/privacy", "/datenschutz", "/imprint", "/impressum"]);
+const INDEXABLE = new Set(["/", "/robots.txt", "/sitemap.xml", "/llms.txt", "/og.png", "/favicon.svg", "/privacy", "/datenschutz", "/imprint", "/impressum"]);
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     try {
-      configureUi({ legal: !!parseLegal(env.LEGAL), abuseEmail: env.ABUSE_EMAIL || null, brand: brandFrom(env) });
+      configureUi({ legal: !!parseLegal(env.LEGAL), abuseEmail: env.ABUSE_EMAIL || null, brand: brandFrom(env), origin: new URL(req.url).origin });
       const res = await route(req, env, ctx);
       const path = new URL(req.url).pathname;
       if (INDEXABLE.has(path) || path.startsWith("/assets/")) return res;
