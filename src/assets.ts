@@ -2,6 +2,7 @@
 /** Self-hosted assets: visitors only talk to leaf's own origin (no third-party font or CDN requests). */
 import { faviconSvg } from "./bloom";
 import { APP_JS } from "./client";
+import DETECT_JS from "./generated/detect.txt";
 
 const FONT_CSS = "https://api.fontshare.com/v2/css?f[]=clash-display@500,600&f[]=general-sans@400,500,600&display=swap";
 const MONO = (w: number) => `https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5/files/jetbrains-mono-latin-${w}-normal.woff2`;
@@ -27,6 +28,8 @@ export async function handleAsset(req: Request, ctx: ExecutionContext): Promise<
     return new Response(faviconSvg(), { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=604800" } });
   if (p === "/assets/app.js")
     return new Response(APP_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=3600" } });
+  if (p === "/assets/detect.js")
+    return new Response(DETECT_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400" } });
   if (p === "/assets/fonts.css")
     return cached(req, ctx, async () => {
       let cssText = "";

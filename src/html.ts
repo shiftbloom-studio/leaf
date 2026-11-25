@@ -156,7 +156,7 @@ export function homePage(o: { limits: Limits; siteKey: string | null; error?: st
 <div class="bar"><span class="label" id="count">up to ${kb(o.limits.anonBytes)}</span><span class="label">utf-8 text</span></div></div>
 <div class="side">
 <label class="f">Title <input name="title" maxlength="120" placeholder="Optional" value="${esc(d?.title || "")}"></label>
-<label class="f">Language <select name="lang">${langOpts}</select></label>
+<label class="f">Language <select name="lang" id="lang">${langOpts}</select></label>
 <label class="f">Delete after <select id="expires" name="expires">${expOpts}</select></label>
 <label class="check"><input type="checkbox" name="burn" value="1"${d?.burn ? " checked" : ""}><span>Delete after the first read<small>The link works once. Opening it shows the paste and deletes it.</small></span></label>
 ${ts}
