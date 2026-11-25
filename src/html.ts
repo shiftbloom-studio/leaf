@@ -114,6 +114,12 @@ const HOME_CSS = `
 .editor{background:var(--ink);border-radius:20px;overflow:hidden}
 .editor textarea{display:block;width:100%;min-height:min(62vh,640px);background:transparent;color:var(--on-ink);border:0;border-radius:0;padding:20px 22px;font:13px/1.7 var(--mono);tab-size:4;resize:vertical;caret-color:var(--bloom)}
 .editor textarea::placeholder{color:rgba(244,237,238,.35)}
+.ed{position:relative}
+.ed .hl{position:absolute;inset:0;margin:0;padding:20px 22px;font:13px/1.7 var(--mono);tab-size:4;white-space:pre;overflow:hidden;color:var(--on-ink);pointer-events:none;max-height:none}
+.ed .hl,.ed textarea{letter-spacing:0;word-spacing:0}
+.ed textarea{position:relative;white-space:pre;overflow:auto}
+.ed.live textarea{color:transparent;-webkit-text-fill-color:transparent}
+.ed.live textarea::selection{background:rgba(255,46,82,.35);-webkit-text-fill-color:transparent}
 .editor textarea:focus{box-shadow:none}
 .editor:focus-within{box-shadow:0 0 0 3px var(--blush)}
 .editor .bar{display:flex;justify-content:space-between;gap:12px;padding:10px 20px;border-top:1px solid rgba(244,237,238,.1)}
@@ -152,7 +158,7 @@ export function homePage(o: { limits: Limits; siteKey: string | null; error?: st
 <div class="intro"><div><span class="label red">new paste</span><h1 style="margin-top:8px">Share code by link<em>.</em></h1>
 <p class="anon-only">Anyone with the link can read the paste, and nobody else can find it. Without a token it is deleted after 12 hours at the latest.</p>
 <p class="token-only">You're using a token, so pastes can stay up to a year and show up in your list below.</p></div></div>
-<div class="editor"><label for="content" class="label" style="position:absolute;left:-9999px">Paste content</label><textarea id="content" name="content" required spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Paste or type here. Ctrl+Enter creates the paste.">${esc(d?.content || "")}</textarea>
+<div class="editor"><label for="content" class="label" style="position:absolute;left:-9999px">Paste content</label><div class="ed" id="ed"><pre class="hl" id="hl" aria-hidden="true"></pre><textarea id="content" name="content" wrap="off" required spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Paste or type here. Ctrl+Enter creates the paste.">${esc(d?.content || "")}</textarea></div>
 <div class="bar"><span class="label" id="count">up to ${kb(o.limits.anonBytes)}</span><span class="label">utf-8 text</span></div></div>
 <div class="side">
 <label class="f">Title <input name="title" maxlength="120" placeholder="Optional" value="${esc(d?.title || "")}"></label>
@@ -175,7 +181,7 @@ ${o.error ? `<p class="err" role="alert">${esc(o.error)}</p>` : ""}
   return page(UI.brand.siteTitle, body, {
     index: true,
     description: UI.brand.description,
-    css: HOME_CSS,
+    css: CODE_CSS + HOME_CSS,
     extraHead: o.siteKey ? `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&amp;onload=leafTurnstile" async defer></script>` : "",
   });
 }
