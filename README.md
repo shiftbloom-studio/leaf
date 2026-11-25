@@ -8,7 +8,7 @@ It runs at [leaf.shiftbloom.studio](https://leaf.shiftbloom.studio) and is made 
 
 - Anyone can paste without an account. Anonymous pastes are deleted after 10 minutes, 1 hour or 12 hours, never later, and can be up to 256 KB.
 - Pastes are only reachable by their link. There's no public list, no search, and the pages send `noindex`.
-- Highlighting happens on the server with highlight.js for 30 bundled languages, so a paste looks right without any script running. Leave the language on "Detect automatically" and leaf guesses from the first 32 KB. Pastes over 512 KB are shown without colours.
+- Highlighting happens on the server with highlight.js for 30 bundled languages, once, when the paste is created; views serve the stored HTML, so a paste looks right without any script running. Leave the language on "Detect automatically" and leaf guesses from the first 4 KB. Lines over 1,000 characters and pastes over 256 KB are shown without colours, because highlight.js gets slow on them.
 - Click a line number to link to that line, shift-click to link to a range (`#L12-L20`).
 - "Delete after the first read" makes a link that works once. Opening it asks first, so chat link previews can't use up the read.
 - Every paste comes with a delete link, shown once. The browser that made it also keeps it on the start page, in local storage, and nowhere else.
@@ -19,6 +19,7 @@ It runs at [leaf.shiftbloom.studio](https://leaf.shiftbloom.studio) and is made 
 
 - Cloudflare Turnstile on the form for anonymous pastes. The check is verified on the server, including the hostname.
 - Per-IP rate limits: 6 anonymous pastes, 10 failed token attempts and 30 lookups of missing pastes per minute (Workers rate limiting bindings).
+- A global ceiling of 5,000 anonymous pastes per UTC day (`MAX_ANON_PER_DAY`, counted in D1).
 - Size caps: 256 KB anonymous, 2 MB with a token (`MAX_ANON_KB`, `MAX_TOKEN_KB`). Binary content is refused.
 - Raw text is served as `text/plain` with `nosniff` and a sandboxing CSP, so nothing pasted can run as a page on leaf's origin. All pages have a strict CSP without inline scripts.
 - Every paste page has "Report this paste", which opens an email to `ABUSE_EMAIL`. The master token can delete any paste.
@@ -32,19 +33,21 @@ browser / curl
 Worker "leaf"  ── routing, Turnstile check, highlight.js, pages
    │      │
    R2     D1
- p/<id>  pastes (metadata, hashed delete key, owner)
- (text)  api_tokens (hashed named tokens)
+ p/<id> text      pastes (metadata, hashed delete key, owner)
+ h/<id> HTML      api_tokens (hashed named tokens)
+                  anon_usage (anonymous pastes per day)
 Cron (hourly) → delete expired pastes from R2 and D1
 ```
 
 | Binding | Type | Default name | Purpose |
 | --- | --- | --- | --- |
-| `PASTES` | R2 bucket | `leaf-pastes` | paste text under `p/<id>` |
-| `DB` | D1 | `leaf-db` | `pastes` and `api_tokens` tables |
+| `PASTES` | R2 bucket | `leaf-pastes` | paste text under `p/<id>`, highlighted HTML under `h/<id>` |
+| `DB` | D1 | `leaf-db` | `pastes`, `api_tokens` and `anon_usage` tables |
 | `CREATE_RL`, `AUTH_RL`, `MISS_RL` | rate limiting | – | per-IP limits, see above |
 | `API_TOKEN` | secret | – | master token |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET` | var / secret | – | bot check for anonymous pastes |
 | `MAX_ANON_KB` / `MAX_TOKEN_KB` | vars | `256` / `2048` | size caps |
+| `MAX_ANON_PER_DAY` | var | `5000` | anonymous pastes per UTC day, all visitors together (`0` = no ceiling) |
 | `ABUSE_EMAIL` | var | – | "Report this paste" address |
 | `LEGAL` | var (JSON) | – | operator details for the imprint and privacy pages |
 | `BRAND`, `OPERATOR_*`, `SOURCE_URL` | vars | – | who runs the instance, link to your fork |
@@ -62,6 +65,8 @@ npx wrangler secret put API_TOKEN        # your master token
 npx wrangler secret put TURNSTILE_SECRET # optional, with TURNSTILE_SITE_KEY in vars
 npm run deploy
 ```
+
+To deploy on every push instead, connect the repository with Workers Builds. leaf.shiftbloom.studio uses the build command `npm run check` and a deploy command that writes the D1 id from a build variable into a copy of `wrangler.jsonc` and runs `npx wrangler deploy --keep-vars`, so the dashboard keeps the imprint and Turnstile vars.
 
 Set a custom domain in `routes` in `wrangler.jsonc`. `workers_dev` and `preview_urls` are off on purpose: those URLs would skip your zone's WAF rules.
 

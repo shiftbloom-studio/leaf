@@ -24,6 +24,8 @@ export interface Env {
   LEGAL?: string;
   MAX_ANON_KB?: string;
   MAX_TOKEN_KB?: string;
+  /** Anonymous pastes per UTC day across all visitors (default 5000, 0 = no ceiling). */
+  MAX_ANON_PER_DAY?: string;
   BRAND?: string;
   SOURCE_URL?: string;
   OPERATOR_NAME?: string;
@@ -108,6 +110,40 @@ async function verifyTurnstile(env: Env, token: string, req: Request) {
   }
 }
 
+/**
+ * The request body as text, or null once it passes `max` bytes. Works with and without Content-Length,
+ * so a chunked upload can't make the Worker buffer more than the cap.
+ */
+async function readCapped(req: Request, max: number): Promise<string | null> {
+  if (Number(req.headers.get("content-length") || 0) > max) return null;
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) { await reader.cancel().catch(() => {}); return null; }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) { all.set(c, o); o += c.byteLength; }
+  return new TextDecoder().decode(all);
+}
+
+/** A global ceiling on anonymous pastes per UTC day (MAX_ANON_PER_DAY), on top of the per-IP limit. */
+async function anonQuotaLeft(env: Env) {
+  const cap = Number(env.MAX_ANON_PER_DAY || 5000);
+  if (!(cap > 0)) return true;
+  const day = new Date().toISOString().slice(0, 10);
+  const row = await env.DB.prepare("INSERT INTO anon_usage (day, count) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET count = count + 1 RETURNING count")
+    .bind(day)
+    .first<{ count: number }>();
+  return !row || row.count <= cap;
+}
+
 // ---------- create ----------
 type Draft = { content: string; title: string; lang: string; expires: string; burn: boolean };
 type Created = { id: string; url: string; raw: string; deleteUrl: string; title: string; lang: string; expiresAt: number | null; burn: boolean; owned: boolean };
@@ -128,12 +164,20 @@ async function createPaste(env: Env, origin: string, d: Draft, who: Principal | 
   const id = randomString(ID_LENGTH);
   const deleteKey = randomString(32);
   const title = sanitizeTitle(d.title);
-  await env.PASTES.put(`p/${id}`, c.text, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
-  await env.DB.prepare(
-    "INSERT INTO pastes (id, title, lang, size, lines, created_at, expires_at, burn, delete_hash, owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  )
-    .bind(id, title || null, lang, size, lineCount(c.text), created, expiresAt, d.burn ? 1 : 0, await sha256Hex(deleteKey), who?.owner ?? null)
-    .run();
+  // Highlight once, now: views then serve the stored HTML, so a paste that is slow to highlight costs CPU once, not per view.
+  const rendered = highlightLines(c.text, lang).join("\n");
+  try {
+    await env.PASTES.put(`p/${id}`, c.text, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
+    await env.PASTES.put(`h/${id}`, rendered, { httpMetadata: { contentType: "text/html; charset=utf-8" } });
+    await env.DB.prepare(
+      "INSERT INTO pastes (id, title, lang, size, lines, created_at, expires_at, burn, delete_hash, owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(id, title || null, lang, size, lineCount(c.text), created, expiresAt, d.burn ? 1 : 0, await sha256Hex(deleteKey), who?.owner ?? null)
+      .run();
+  } catch (e) {
+    await env.PASTES.delete([`p/${id}`, `h/${id}`]).catch(() => {}); // no orphaned text without a row
+    throw e;
+  }
   return { id, url: `${origin}/${id}`, raw: `${origin}/${id}/raw`, deleteUrl: `${origin}/d/${id}/${deleteKey}`, title, lang, expiresAt, burn: d.burn, owned: !!who };
 }
 
@@ -141,9 +185,9 @@ async function createPaste(env: Env, origin: string, d: Draft, who: Principal | 
 async function handleForm(req: Request, env: Env, ctx: ExecutionContext, origin: string) {
   const ct = req.headers.get("content-type") || "";
   if (!/^(application\/x-www-form-urlencoded|multipart\/form-data)/.test(ct)) return html(notFoundPage(), 415);
-  const len = Number(req.headers.get("content-length") || 0);
-  if (len > limits(env).tokenBytes * 3 + 65536) return html(homePage({ limits: limits(env), siteKey: siteKey(env), error: "That's too much text for one paste." }), 413);
-  const f = await req.formData();
+  const raw = await readCapped(req, limits(env).tokenBytes * 3 + 65536);
+  if (raw == null) return html(homePage({ limits: limits(env), siteKey: siteKey(env), error: "That's too much text for one paste." }), 413);
+  const f = await new Response(raw, { headers: { "content-type": ct } }).formData();
   const field = (k: string) => (typeof f.get(k) === "string" ? (f.get(k) as string) : "");
   const draft: Draft = { content: field("content"), title: field("title"), lang: field("lang"), expires: field("expires"), burn: field("burn") === "1" };
   const again = (error: string, status: number) => html(homePage({ limits: limits(env), siteKey: siteKey(env), error, draft: { ...draft, content: draft.content.slice(0, limits(env).tokenBytes) } }), status);
@@ -156,6 +200,7 @@ async function handleForm(req: Request, env: Env, ctx: ExecutionContext, origin:
   if (!who) {
     if (env.CREATE_RL && !(await env.CREATE_RL.limit({ key: ip(req) })).success) return again("That's a lot of pastes in one minute. Wait a moment, then try again.", 429);
     if (!(await verifyTurnstile(env, field("cf-turnstile-response"), req))) return again("The bot check didn't go through. Try again.", 403);
+    if (!(await anonQuotaLeft(env))) return again("leaf has taken all the anonymous pastes it can for today. Try again tomorrow, or use a token.", 503);
   }
   const r = await createPaste(env, origin, draft, who ?? null);
   if ("error" in r) return again(r.error, r.status);
@@ -165,16 +210,17 @@ async function handleForm(req: Request, env: Env, ctx: ExecutionContext, origin:
 /** API: raw body (curl --data-binary) or JSON. Needs a token; anonymous pastes go through the web form and Turnstile. */
 async function handleApiCreate(req: Request, env: Env, origin: string, who: Principal) {
   const ct = req.headers.get("content-type") || "";
-  const len = Number(req.headers.get("content-length") || 0);
-  if (len > limits(env).tokenBytes * 2) return apiError(413, `the limit is ${Math.round(limits(env).tokenBytes / 1024)} KB`);
+  const body = await readCapped(req, limits(env).tokenBytes * 2);
+  if (body == null) return apiError(413, `the limit is ${Math.round(limits(env).tokenBytes / 1024)} KB`);
   let d: Draft;
   if (ct.startsWith("application/json")) {
-    const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    let b: Record<string, unknown> | null = null;
+    try { b = JSON.parse(body); } catch {}
     if (!b || typeof b.content !== "string") return apiError(422, 'send JSON like {"content": "..."}');
     d = { content: b.content, title: String(b.title ?? ""), lang: String(b.lang ?? ""), expires: String(b.expires ?? ""), burn: b.burn === true };
   } else {
     const h = req.headers;
-    d = { content: await req.text(), title: h.get("x-title") || "", lang: h.get("x-lang") || "", expires: h.get("x-expires") || "", burn: h.get("x-burn") === "1" || h.get("x-burn") === "true" };
+    d = { content: body, title: h.get("x-title") || "", lang: h.get("x-lang") || "", expires: h.get("x-expires") || "", burn: h.get("x-burn") === "1" || h.get("x-burn") === "true" };
   }
   const r = await createPaste(env, origin, d, who);
   if ("error" in r) return apiError(r.status, r.error);
@@ -194,27 +240,43 @@ async function getText(env: Env, id: string) {
   return o ? o.text() : null;
 }
 
+const objectKeys = (id: string) => [`p/${id}`, `h/${id}`];
+
 async function deletePaste(env: Env, id: string) {
   await env.DB.prepare("DELETE FROM pastes WHERE id = ?").bind(id).run();
-  await env.PASTES.delete(`p/${id}`);
+  await env.PASTES.delete(objectKeys(id));
+}
+
+/** The highlighted lines stored at creation. Pastes without them (none yet, but cheap to support) are rendered once and stored. */
+async function renderedLines(env: Env, ctx: ExecutionContext | null, row: Row): Promise<string[] | null> {
+  const h = await env.PASTES.get(`h/${row.id}`);
+  if (h) return (await h.text()).split("\n");
+  const text = await getText(env, row.id);
+  if (text == null) return null;
+  const lines = highlightLines(text, row.lang);
+  if (ctx) ctx.waitUntil(env.PASTES.put(`h/${row.id}`, lines.join("\n"), { httpMetadata: { contentType: "text/html; charset=utf-8" } }));
+  return lines;
 }
 
 async function serveView(env: Env, ctx: ExecutionContext, row: Row, origin: string) {
   if (row.burn) return html(burnGatePage(row));
-  const text = await getText(env, row.id);
-  if (text == null) return html(notFoundPage(), 404);
+  const lines = await renderedLines(env, ctx, row);
+  if (lines == null) return html(notFoundPage(), 404);
   ctx.waitUntil(env.DB.prepare("UPDATE pastes SET views = views + 1 WHERE id = ?").bind(row.id).run());
-  return html(viewPage(row, highlightLines(text, row.lang), { url: `${origin}/${row.id}` }), 200, "private, max-age=60");
+  return html(viewPage(row, lines, { url: `${origin}/${row.id}` }), 200, "private, max-age=60");
 }
 
 /** Burn after reading: claim the row first, so two people opening the link at once can't both read it. */
 async function openBurn(env: Env, row: Row, origin: string) {
   const claimed = await env.DB.prepare("DELETE FROM pastes WHERE id = ? AND burn = 1").bind(row.id).run();
   if (!claimed.meta.changes) return html(notFoundPage(), 404);
-  const text = await getText(env, row.id);
-  await env.PASTES.delete(`p/${row.id}`);
-  if (text == null) return html(notFoundPage(), 404);
-  return html(viewPage(row, highlightLines(text, row.lang), { url: `${origin}/${row.id}`, burned: true }));
+  try {
+    const lines = await renderedLines(env, null, row);
+    if (lines == null) return html(notFoundPage(), 404);
+    return html(viewPage(row, lines, { url: `${origin}/${row.id}`, burned: true }));
+  } finally {
+    await env.PASTES.delete(objectKeys(row.id)); // the row is gone, so the text goes too, whatever happened above
+  }
 }
 
 async function serveRaw(env: Env, ctx: ExecutionContext, row: Row, download: boolean) {
@@ -256,9 +318,11 @@ async function cleanup(env: Env) {
     const { results } = await env.DB.prepare("SELECT id FROM pastes WHERE expires_at IS NOT NULL AND expires_at <= ? LIMIT 500").bind(now()).all<{ id: string }>();
     if (!results.length) break;
     const ids = results.map((r) => r.id);
-    await env.PASTES.delete(ids.map((id) => `p/${id}`));
+    await env.PASTES.delete(ids.flatMap(objectKeys));
     await env.DB.batch(ids.map((id) => env.DB.prepare("DELETE FROM pastes WHERE id = ?").bind(id)));
   }
+  const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
+  await env.DB.prepare("DELETE FROM anon_usage WHERE day < ?").bind(weekAgo).run();
 }
 
 const siteKey = (env: Env) => (env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY : null);

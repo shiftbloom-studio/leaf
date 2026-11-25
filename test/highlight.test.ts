@@ -34,3 +34,27 @@ describe("highlighting", () => {
     expect(splitLines('<span class="a">x<span class="b">y\nz</span></span>')).toEqual(['<span class="a">x<span class="b">y</span></span>', '<span class="a"><span class="b">z</span></span>']);
   });
 });
+
+describe("pathological input", () => {
+  const time = (f: () => unknown) => { const s = performance.now(); f(); return performance.now() - s; };
+  it("leaves very long lines plain instead of spending seconds on them", () => {
+    const line = "a".repeat(40 * 1024);
+    let lines: string[] = [];
+    expect(time(() => (lines = highlightLines(line, "java")))).toBeLessThan(500);
+    expect(lines).toEqual([line]);
+  });
+  it("stays fast on a 256 KB paste of long words in a slow grammar", () => {
+    const text = ("a".repeat(500) + "\n").repeat(500);
+    expect(time(() => highlightLines(text, "cpp"))).toBeLessThan(500);
+  });
+  it("detects quickly on a huge single line", () => {
+    expect(time(() => detectLanguage("a".repeat(256 * 1024)))).toBeLessThan(500);
+  });
+  it("still highlights normal lines around a long one", () => {
+    const out = highlightLines(`const a = 1;\n${"x".repeat(2000)}\nconst b = 2;`, "javascript");
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain("hljs-keyword");
+    expect(out[1]).not.toContain("<span");
+    expect(out[2]).toContain("hljs-keyword");
+  });
+});
