@@ -54,7 +54,27 @@ exp.addEventListener('change',function(){exp.dataset.touched=1});
 ta.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();form.requestSubmit?form.requestSubmit():form.submit()}});
 var cnt=$('#count'),max=+form.getAttribute('data-max-anon'),maxT=+form.getAttribute('data-max-token');
 function count(){if(!cnt)return;var n=new Blob([ta.value]).size,lim=tok?maxT:max;cnt.textContent=(n<1024?n+' B':(n/1024).toFixed(1)+' KB')+' of '+Math.round(lim/1024)+' KB';cnt.classList.toggle('over',n>lim)}
-ta.addEventListener('input',count);
+// counting UTF-8 bytes walks the whole text: do it right away for small pastes, after a pause for big ones
+var cntT=0;ta.addEventListener('input',function(){clearTimeout(cntT);if(ta.value.length<=MAXHL)count();else cntT=setTimeout(count,300)});
+
+// the editor: language detection and live highlighting while typing, using the same code as the server.
+// The "auto" option names what leaf will pick; a language picked by hand wins.
+// Highlighting draws into a <pre> under a transparent textarea; large input falls back to plain text.
+var lang=$('#lang',form),autoOpt=lang&&$('option[value=auto]',lang),ed=$('#ed'),hl=$('#hl'),detected='plaintext',detT=0,hlT=0,lib=0;
+var SYNC=8192,MAXHL=32768;
+function esc(t){return t.replace(/[&<>]/g,function(c){return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;'})}
+function load(){if(lib)return;lib=1;var s=document.createElement('script');s.src='/assets/detect.js';s.async=true;s.onload=function(){lib=2;big();runDetect();paint()};s.onerror=function(){lib=0};document.head.appendChild(s)}
+function cur(){return lang.value==='auto'?detected:lang.value}
+function sync(){hl.scrollTop=ta.scrollTop;hl.scrollLeft=ta.scrollLeft}
+// above MAXHL the overlay steps aside and the textarea shows its own text, so big pastes cost nothing per keystroke
+function big(){var b=ta.value.length>MAXHL;ed.classList.toggle('live',lib===2&&!b);if(b&&hl.firstChild)hl.textContent='';return b}
+function paint(){if(lib!==2||big())return;var t=ta.value,h;try{h=window.leafHighlight(t,cur())}catch(e){h=esc(t)}hl.innerHTML=h+'\n ';sync()}
+function runDetect(){if(lib!==2||!autoOpt)return;var t=ta.value;if(!t.trim()){detected='plaintext';autoOpt.textContent='Detect automatically';return}
+  if(lang.value!=='auto')return;var before=detected;try{var r=window.leafDetect(t.slice(0,65536));detected=r.id;autoOpt.textContent=r.id==='plaintext'?'Detect automatically (plain text so far)':'Detect automatically: '+r.label}catch(e){}if(detected!==before)paint()}
+function onInput(){if(lib!==2){load();return}
+  clearTimeout(hlT);if(!big()){if(ta.value.length<=SYNC)paint();else{hl.innerHTML=esc(ta.value)+'\n ';sync();hlT=setTimeout(paint,250)}}
+  clearTimeout(detT);detT=setTimeout(runDetect,450)}
+if(lang&&ed&&hl){ta.addEventListener('input',onInput);ta.addEventListener('scroll',sync);ta.addEventListener('focus',load);lang.addEventListener('change',function(){if(lang.value==='auto')runDetect();paint()});if(ta.value)load()}
 var saveB=$('#token-save'),forget=$('#token-forget');
 if(saveB)saveB.addEventListener('click',function(){var v=(tin.value||'').trim();if(!v)return;fetch('/api/pastes?limit=1',{headers:{authorization:'Bearer '+v}}).then(function(r){if(r.ok){tok=v;store(TK,v);tin.value='';tf.open=false;$('#token-err').hidden=true;mode();count()}else{$('#token-err').hidden=false}},function(){$('#token-err').hidden=false})});
 if(forget)forget.addEventListener('click',function(){tok='';store(TK,null);mode();count()});

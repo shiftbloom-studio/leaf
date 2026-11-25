@@ -87,12 +87,55 @@ export function normalizeLang(v: string | null | undefined): string | null {
 }
 
 /** Detection looks at up to 4 KB from the start and stays plain text when nothing fits well. */
+/**
+ * Strong, cheap signals first. highlight.js's own detection is unreliable on a few lines of code
+ * (a Python for-loop scores as SCSS), so obvious cases are settled by these patterns.
+ */
+const SIGNALS: [string, RegExp][] = [
+  ["diff", /^(diff --git |--- a\/|\+\+\+ b\/|@@ -\d+(,\d+)? \+\d+(,\d+)? @@)/m],
+  ["php", /<\?php\b/],
+  ["dockerfile", /^FROM\s+\S+(\s+AS\s+\w+)?\s*$[\s\S]*^(RUN|COPY|CMD|ENTRYPOINT|WORKDIR)\s/im],
+  ["go", /^package\s+\w+\s*$[\s\S]*^(import|func)\b/m],
+  ["java", /^package\s+[\w.]+;\s*$/m],
+  ["kotlin", /^package\s+[\w.]+\s*$[\s\S]*^(import\s+[\w.]+|fun\s|class\s|object\s)/m],
+  ["rust", /^\s*(pub\s+)?fn\s+\w+[^\n]*(->|\{)[\s\S]*(\blet\s+(mut\s+)?\w+|::|println!)/m],
+  ["python", /^\s*(def\s+\w+\s*\(.*\)\s*(->\s*[^:]+)?:|class\s+\w+(\([^)]*\))?\s*:|elif\s.+:|except(\s+\w+(\s+as\s+\w+)?)?\s*:|from\s+[\w.]+\s+import\s|for\s+\w+(\s*,\s*\w+)*\s+in\s+.+:|with\s+.+\s+as\s+\w+\s*:)\s*$/m],
+  ["python", /^(from\s+[\w.]+\s+import\s+[\w*(]|import\s+[\w.]+(\s+as\s+\w+)?\s*$)/m],
+  ["typescript", /^\s*(export\s+)?(interface|type)\s+\w+(<[^>]*>)?\s*(=|\{)|\b(const|let|function)\b[^\n]*:\s*(string|number|boolean|unknown|void)\b/m],
+  ["javascript", /^\s*(const|let|var)\s+[\w{}\[\], ]+\s*=|\bconsole\.log\(|=>\s*[{(]|^\s*(import\s.+\sfrom\s+['"]|module\.exports\b|require\(['"])/m],
+  ["sql", /^\s*(SELECT\s.+\sFROM\s|INSERT\s+INTO\s|CREATE\s+(TABLE|INDEX|VIEW)\s|UPDATE\s+\w+\s+SET\s|DELETE\s+FROM\s|ALTER\s+TABLE\s)/im],
+  ["cpp", /^\s*#include\s*<[\w./]+>[\s\S]*(\bstd::|\bclass\s|\btemplate\s*<|\bnamespace\s)/m],
+  ["c", /^\s*#include\s*[<"][\w./]+[>"]/m],
+  ["xml", /^\s*(<!doctype\s+html|<html[\s>]|<\?xml\s|<svg[\s>])/im],
+];
+
+/** A language when the text clearly is one; JSON is checked by parsing it. */
+function obviousLanguage(sample: string, full: string): string | null {
+  const first = sample.split("\n", 1)[0];
+  const shebang = /^#!.*\b(python3?|bash|sh|zsh|node|deno|bun|ruby|php|lua)\b/.exec(first);
+  if (shebang) return { python: "python", python3: "python", bash: "bash", sh: "bash", zsh: "bash", node: "javascript", deno: "typescript", bun: "typescript", ruby: "ruby", php: "php", lua: "lua" }[shebang[1]] ?? null;
+  const t = full.trim();
+  if ((t.startsWith("{") || t.startsWith("[")) && t.length <= 512 * 1024) {
+    try { JSON.parse(t); return "json"; } catch {}
+  }
+  for (const [lang, re] of SIGNALS) if (re.test(sample)) return lang;
+  return null;
+}
+
+/**
+ * Detection looks at up to 4 KB from the start and stays plain text when nothing fits well:
+ * first the signals above, then highlight.js, whose guess only counts with a clear lead over the runner-up.
+ */
 export function detectLanguage(text: string): string {
   // a small sample without pathological lines: detection runs every grammar over it
   const sample = text.split("\n", 400).filter((l) => !plainLine(l) && l.length <= 300).join("\n").slice(0, 4096);
   if (sample.trim().length < 8) return "plaintext";
+  const obvious = obviousLanguage(sample, text);
+  if (obvious) return obvious;
   const r = hljs.highlightAuto(sample, Object.keys(LANGUAGES).filter((l) => l !== "plaintext"));
-  return r.language && r.relevance >= 5 ? r.language : "plaintext";
+  if (!r.language || r.relevance < 5) return "plaintext";
+  if (r.secondBest?.language && r.relevance - (r.secondBest.relevance ?? 0) < 2) return "plaintext";
+  return r.language;
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);

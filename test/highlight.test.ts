@@ -58,3 +58,19 @@ describe("pathological input", () => {
     expect(out[2]).toContain("hljs-keyword");
   });
 });
+
+describe("detection of short snippets", () => {
+  const s: [string,string][] = [
+   ["python","def add(a, b):\n    return a + b\n"], ["python","class Foo:\n    def __init__(self):\n        self.x = 1\n"], ["python","if x > 1:\n    print(x)\nelif x < 0:\n    pass\n"],
+   ["python","for i in range(10):\n    print(i)\n"], ["python","from flask import Flask\napp = Flask(__name__)\n"], ["python","with open('f.txt') as f:\n    data = f.read()\n"],
+   ["python","try:\n    x = 1/0\nexcept ZeroDivisionError as e:\n    print(e)\n"], ["javascript","const a = 1;\nconsole.log(a);\n"], ["typescript","interface User {\n  name: string;\n}\n"],
+   ["json",'{"a": 1, "b": [1,2]}'], ["bash","#!/bin/bash\necho hi\n"], ["go","package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n"],
+   ["sql","SELECT * FROM users WHERE id = 1;"], ["rust","fn main() {\n    let mut x = 5;\n    println!(\"{}\", x);\n}\n"], ["css",".a {\n  color: red;\n  margin: 0 auto;\n}\n.b > .c {\n  display: flex;\n}\n"],
+   ["cpp","#include <iostream>\nint main() {\n  std::cout << 1;\n}\n"], ["dockerfile","FROM node:26\nWORKDIR /app\nRUN npm ci\n"], ["diff","diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"],
+   ["kotlin","package com.example\n\nimport kotlin.math.max\n\nfun main() {}\n"], ["java","package com.example;\n\nimport java.util.List;\n"],
+   ["plaintext","hello there, this is just a note"], ["yaml","name: CI\non:\n  push:\n    branches: [main]\njobs:\n  build:\n    runs-on: ubuntu-latest\n"],
+  ];
+  it.each(s)("recognises %s", (want, text) => {
+    expect(detectLanguage(text)).toBe(want);
+  });
+});
