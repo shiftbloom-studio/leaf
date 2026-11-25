@@ -86,33 +86,63 @@ export function normalizeLang(v: string | null | undefined): string | null {
   return ALIASES[k] ?? null;
 }
 
-/** Detection looks at the first 32 KB only and stays plain text when nothing fits well. */
+/** Detection looks at up to 4 KB from the start and stays plain text when nothing fits well. */
 export function detectLanguage(text: string): string {
-  const sample = text.slice(0, 32 * 1024);
+  // a small sample without pathological lines: detection runs every grammar over it
+  const sample = text.split("\n", 400).filter((l) => !plainLine(l) && l.length <= 300).join("\n").slice(0, 4096);
+  if (sample.trim().length < 8) return "plaintext";
   const r = hljs.highlightAuto(sample, Object.keys(LANGUAGES).filter((l) => l !== "plaintext"));
   return r.language && r.relevance >= 5 ? r.language : "plaintext";
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
-/** Above this size the paste is shown without colours, so a 2 MB log can't eat the Worker's CPU budget. */
-export const HIGHLIGHT_LIMIT = 512 * 1024;
+/** Above this size the paste is shown without colours. */
+export const HIGHLIGHT_LIMIT = 256 * 1024;
+/** highlight.js gets slow (worse than linear) on very long lines and very long words; those lines stay plain. */
+const MAX_LINE = 1000;
+const LONG_WORD = /[^\s"'`()[\]{}<>,;:=+\-*/\\|&!?.]{120}/;
+/** Lines are highlighted in segments of about this many characters, cut at blank lines where possible. */
+const SEGMENT = 4096;
+
+const plainLine = (l: string) => l.length > MAX_LINE || LONG_WORD.test(l);
 
 /**
- * Highlighted HTML, split into one string per source line. highlight.js spans may cross line breaks
+ * Highlighted HTML, one string per source line. highlight.js spans may cross line breaks
  * (block comments, template strings); they are closed at the end of each line and reopened on the next,
  * so every line can be rendered, linked and selected on its own.
+ *
+ * The text is highlighted in segments, and pathological lines are left plain, so the cost stays close
+ * to linear in the paste size. A block comment that crosses a segment boundary can lose its colour.
  */
 export function highlightLines(text: string, lang: string): string[] {
   const body = text.endsWith("\n") ? text.slice(0, -1) : text;
-  if (lang === "plaintext" || !(lang in LANGUAGES) || body.length > HIGHLIGHT_LIMIT) return body.split("\n").map(escapeHtml);
-  let html: string;
-  try {
-    html = hljs.highlight(body, { language: lang, ignoreIllegals: true }).value;
-  } catch {
-    return body.split("\n").map(escapeHtml);
+  const lines = body.split("\n");
+  if (lang === "plaintext" || !(lang in LANGUAGES) || body.length > HIGHLIGHT_LIMIT) return lines.map(escapeHtml);
+  const out: string[] = [];
+  let seg: string[] = [];
+  let segLen = 0;
+  const flush = () => {
+    if (!seg.length) return;
+    const src = seg.join("\n");
+    try {
+      const html = splitLines(hljs.highlight(src, { language: lang, ignoreIllegals: true }).value);
+      if (html.length === seg.length) out.push(...html);
+      else out.push(...seg.map(escapeHtml));
+    } catch {
+      out.push(...seg.map(escapeHtml));
+    }
+    seg = [];
+    segLen = 0;
+  };
+  for (const l of lines) {
+    if (plainLine(l)) { flush(); out.push(escapeHtml(l)); continue; }
+    if (segLen >= SEGMENT && (l.trim() === "" || segLen >= SEGMENT * 2)) flush();
+    seg.push(l);
+    segLen += l.length + 1;
   }
-  return splitLines(html);
+  flush();
+  return out;
 }
 
 /** Split highlight.js output on newlines while keeping open spans balanced on every line. */

@@ -106,6 +106,8 @@ export const robotsTxt = (origin: string) =>
     "Allow: /$",
     "Allow: /privacy",
     "Allow: /imprint",
+    "Allow: /datenschutz",
+    "Allow: /impressum",
     "Disallow: /",
     "",
     ...AI_TRAINING_BOTS.map((b) => `User-agent: ${b}`),
