@@ -74,15 +74,64 @@ pre.wrap code{min-width:0}pre.wrap .ln{white-space:pre-wrap;word-break:break-wor
 .hljs-emphasis{font-style:italic}.hljs-strong{font-weight:600}
 `;
 
-export type Ui = { legal: boolean; abuseEmail: string | null; brand: Brand };
+export type Ui = { legal: boolean; abuseEmail: string | null; brand: Brand; origin?: string };
 let UI: Ui = { legal: false, abuseEmail: null, brand: brandFrom() };
 /** Set once per request from the Worker's config. */
 export function configureUi(c: Ui) { UI = c; }
 export const ui = () => UI;
 
+/**
+ * Canonical URL, link preview (Open Graph, Twitter) and JSON-LD for the start page. Only indexable
+ * landing pages pass a description to head(), so pastes and other pages never get these tags.
+ */
+function landingMeta(title: string, description: string) {
+  const origin = UI.origin;
+  if (!origin) return "";
+  const o = UI.brand.operator;
+  const ld = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "leaf",
+    url: `${origin}/`,
+    description,
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Web",
+    inLanguage: "en",
+    isAccessibleForFree: true,
+    license: "https://www.gnu.org/licenses/agpl-3.0.html",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
+    ...(o ? { publisher: { "@type": "Organization", ...(o.url ? { "@id": `${o.url.replace(/\/+$/, "")}/#org`, url: o.url } : {}), name: o.name } } : {}),
+    sameAs: [UI.brand.sourceUrl],
+  };
+  const img = `${origin}/og.png`;
+  return `<link rel="canonical" href="${esc(origin)}/">
+<meta property="og:type" content="website"><meta property="og:site_name" content="${esc(o?.name ?? "leaf")}"><meta property="og:locale" content="en_US">
+<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}"><meta property="og:url" content="${esc(origin)}/">
+<meta property="og:image" content="${esc(img)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="leaf. Share code by link.">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(description)}"><meta name="twitter:image" content="${esc(img)}">
+<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>`;
+}
+
+/** Plain-text summary for AI answer engines (https://llmstxt.org). */
+export function llmsTxt(origin: string) {
+  const o = UI.brand.operator;
+  return `# leaf
+
+> leaf is a small, self-hostable pastebin for code and logs${o ? `, run here by ${o.name}` : ""}. It runs on Cloudflare Workers with D1 and R2. Licensed AGPL-3.0-or-later. Source: ${UI.brand.sourceUrl}
+
+- Purpose: paste text, get a link to share. Server-side highlighting for 30 languages, line links (#L12-L20), optional "delete after the first read".
+- Anonymous pastes need a bot check and are deleted after 10 minutes, 1 hour or 12 hours at the latest; up to 256 KB. Pastes made with an API token can stay up to a year.
+- Pastes are only reachable by their link. There is no public list or search, and paste pages send X-Robots-Tag: noindex.
+
+## Pages
+
+- [Start page](${origin}/): write a new paste
+${UI.legal ? `- [Privacy](${origin}/privacy) ([Datenschutz, German](${origin}/datenschutz))\n- [Imprint](${origin}/imprint) ([Impressum, German](${origin}/impressum))\n` : ""}`;
+}
+
 export const head = (title: string, o: { extraHead?: string; css?: string; index?: boolean; lang?: string; description?: string } = {}) => `<!doctype html><html lang="${o.lang || "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>${o.index ? "" : `<meta name="robots" content="noindex, nofollow">`}${o.description ? `<meta name="description" content="${esc(o.description)}">` : ""}<meta name="theme-color" content="#ffffff"><meta name="referrer" content="no-referrer">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/fonts.css">${o.extraHead || ""}<style>${css}${o.css || ""}</style></head>`;
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/fonts.css">${o.description ? landingMeta(title, o.description) : ""}${o.extraHead || ""}<style>${css}${o.css || ""}</style></head>`;
 
 function operatorMark() {
   const o = UI.brand.operator;

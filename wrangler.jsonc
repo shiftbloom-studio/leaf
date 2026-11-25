@@ -5,6 +5,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "leaf",
   "main": "src/index.ts",
+  // the link preview image is bundled as bytes
+  "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }],
   "compatibility_date": "2026-11-01",
   "observability": { "enabled": true },
 
