@@ -1,0 +1,43 @@
+// leaf: Cloudflare Workers config.
+// Before the first deploy, create the resources (see README, "Self-hosting") and
+// replace the <placeholder> below with the ID Wrangler prints.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "leaf",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+
+  // Serve on your own (sub)domain. The zone must be on the same Cloudflare account.
+  // "routes": [{ "pattern": "paste.example.com", "custom_domain": true }],
+  // No workers.dev or preview URLs: they bypass the zone's WAF and rate limiting rules.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "vars": {
+    "MAX_ANON_KB": "256",
+    "MAX_TOKEN_KB": "2048"
+    // Optional: who runs this instance (footer) and where your source is (AGPL section 13).
+    // "OPERATOR_NAME": "Jane Doe", "OPERATOR_URL": "https://example.com", "OPERATOR_PLACE": "Berlin",
+    // "SOURCE_URL": "https://github.com/you/leaf",
+    // Optional: shows "Report this paste" on every paste.
+    // "ABUSE_EMAIL": "abuse@example.com",
+    // Optional but recommended: Turnstile on the form for anonymous pastes (also set the TURNSTILE_SECRET secret).
+    // "TURNSTILE_SITE_KEY": "<your-turnstile-site-key>",
+    // Optional: operator details for /imprint, /impressum, /privacy and /datenschutz (hidden when unset).
+    // "LEGAL": "{\"name\":\"Jane Doe\",\"street\":\"Example St 1\",\"city\":\"12345 Town\",\"country\":{\"en\":\"Germany\",\"de\":\"Deutschland\"},\"email\":\"jane@example.com\",\"authority\":\"Your data protection authority, address\"}"
+  },
+  // Per IP and minute: anonymous pastes, failed token attempts, lookups of pastes that don't exist.
+  // namespace_id must be unique in your account.
+  "ratelimits": [
+    { "name": "CREATE_RL", "namespace_id": "1201", "simple": { "limit": 6, "period": 60 } },
+    { "name": "AUTH_RL", "namespace_id": "1202", "simple": { "limit": 10, "period": 60 } },
+    { "name": "MISS_RL", "namespace_id": "1203", "simple": { "limit": 30, "period": 60 } }
+  ],
+  "r2_buckets": [{ "binding": "PASTES", "bucket_name": "leaf-pastes" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "leaf-db", "database_id": "<your-d1-database-id>", "migrations_dir": "migrations" }],
+  "triggers": { "crons": ["23 * * * *"] }
+  // Secrets (not in this file):
+  //   API_TOKEN         master token, sees and deletes every paste   npx wrangler secret put API_TOKEN
+  //   TURNSTILE_SECRET  pairs with TURNSTILE_SITE_KEY                npx wrangler secret put TURNSTILE_SECRET
+}
