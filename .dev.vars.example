@@ -1,0 +1,8 @@
+# Copy to .dev.vars for `npm run dev`. Never commit .dev.vars.
+# Master token: can paste through the API, keep pastes forever and delete any paste. Generate one with:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+API_TOKEN=change-me
+
+# Optional: Turnstile for anonymous pastes. These are Turnstile's test keys that always pass.
+# TURNSTILE_SITE_KEY=1x00000000000000000000AA
+# TURNSTILE_SECRET=1x0000000000000000000000000000000AA
