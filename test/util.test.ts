@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from "vitest";
 import { cleanContent, expirySeconds, ID_ALPHABET, ID_LENGTH, ID_RE, isNamedToken, lineCount, randomString, sanitizeTitle, tokenUsable } from "../src/util";
 

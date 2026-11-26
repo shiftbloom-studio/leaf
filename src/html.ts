@@ -147,7 +147,7 @@ export const footer = (lang: "en" | "de" = "en") => {
   const de = lang === "de";
   const legal = UI.legal ? (de ? ` · <a href="/datenschutz">Datenschutz</a> · <a href="/impressum">Impressum</a>` : ` · <a href="/privacy">Privacy</a> · <a href="/imprint">Imprint</a>`) : "";
   const o = UI.brand.operator;
-  return `<footer class="foot"><p>${de ? "leaf ist Open Source unter AGPL-3.0." : "leaf is open source under AGPL-3.0."} <a href="${esc(UI.brand.sourceUrl)}">${de ? "Zum Code" : "Read the code"}</a>${legal}</p>${o ? `<p>${operatorMark()}${o.place ? ` · ${esc(o.place)}` : ""}</p>` : ""}</footer>`;
+  return `<footer class="foot"><p>${de ? "leaf ist Open Source unter AGPL-3.0-or-later." : "leaf is open source under AGPL-3.0-or-later."} <a href="${esc(UI.brand.sourceUrl)}">${de ? "Zum Code" : "Read the code"}</a>${legal}</p>${o ? `<p>${operatorMark()}${o.place ? ` · ${esc(o.place)}` : ""}</p>` : ""}</footer>`;
 };
 
 const page = (title: string, body: string, o: Parameters<typeof head>[1] & { foot?: "en" | "de" } = {}) =>
