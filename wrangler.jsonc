@@ -28,6 +28,8 @@
     // "TURNSTILE_SITE_KEY": "<your-turnstile-site-key>",
     // Optional: operator details for /imprint, /impressum, /privacy and /datenschutz (hidden when unset).
     // "LEGAL": "{\"name\":\"Jane Doe\",\"street\":\"Example St 1\",\"city\":\"12345 Town\",\"country\":{\"en\":\"Germany\",\"de\":\"Deutschland\"},\"email\":\"jane@example.com\",\"authority\":\"Your data protection authority, address\"}"
+    // Optional: PostHog host (default https://us.i.posthog.com). Usage statistics switch on with the POSTHOG_KEY secret.
+    // "POSTHOG_HOST": "https://eu.i.posthog.com",
   },
   // Per IP and minute: anonymous pastes, failed token attempts, lookups of pastes that don't exist.
   // namespace_id must be unique in your account.
