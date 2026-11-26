@@ -93,6 +93,19 @@ The pages `/imprint`, `/impressum`, `/privacy` and `/datenschutz` appear when th
 
 Optional fields: `business`, `phone`, `vatId`. Keep this in your deploy config, not in the repository. The privacy policy describes this code as it is; check it against your own setup before you publish it.
 
+### Usage statistics (optional)
+
+leaf can report to [PostHog](https://posthog.com) without cookies. Set the project token (`phc_...`) as a secret and, for the EU cloud or a self-hosted instance, `POSTHOG_HOST` as a var:
+
+```sh
+npx wrangler secret put POSTHOG_KEY
+```
+
+- Only the start page, the legal pages and "not found" load `/_sb/init.js`. posthog-js is served through the Worker under `/_sb/`, so the CSP stays `'self'`. Paste pages, raw text, delete links and the API never load it.
+- Cookieless mode, no session recording, no person profiles. Clicks are captured on buttons and links only, with text, labels and link targets removed; paste addresses are reported as `/[private]`.
+- The Worker sends `paste_created`, `paste_refused`, `paste_deleted`, `cleanup_ran` and `$exception` without IP address, content, title, id or token.
+- With the secret set, the privacy policy gets a "Usage statistics" section. In the PostHog project, turn on cookieless server hash mode and IP discarding.
+
 ## Development
 
 ```sh

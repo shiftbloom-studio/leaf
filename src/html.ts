@@ -74,7 +74,8 @@ pre.wrap code{min-width:0}pre.wrap .ln{white-space:pre-wrap;word-break:break-wor
 .hljs-emphasis{font-style:italic}.hljs-strong{font-weight:600}
 `;
 
-export type Ui = { legal: boolean; abuseEmail: string | null; brand: Brand; origin?: string };
+/** analytics: the PostHog script tag (empty when off); only the start page, the legal pages and "not found" get it. */
+export type Ui = { legal: boolean; abuseEmail: string | null; brand: Brand; origin?: string; analytics?: string };
 let UI: Ui = { legal: false, abuseEmail: null, brand: brandFrom() };
 /** Set once per request from the Worker's config. */
 export function configureUi(c: Ui) { UI = c; }
@@ -150,8 +151,8 @@ export const footer = (lang: "en" | "de" = "en") => {
   return `<footer class="foot"><p>${de ? "leaf ist Open Source unter AGPL-3.0-or-later." : "leaf is open source under AGPL-3.0-or-later."} <a href="${esc(UI.brand.sourceUrl)}">${de ? "Zum Code" : "Read the code"}</a>${legal}</p>${o ? `<p>${operatorMark()}${o.place ? ` · ${esc(o.place)}` : ""}</p>` : ""}</footer>`;
 };
 
-const page = (title: string, body: string, o: Parameters<typeof head>[1] & { foot?: "en" | "de" } = {}) =>
-  `${head(title, o)}<body><div class="wrap">${body}${footer(o.foot || "en")}</div><script src="/assets/app.js" defer></script></body></html>`;
+const page = (title: string, body: string, o: Parameters<typeof head>[1] & { foot?: "en" | "de"; analytics?: boolean } = {}) =>
+  `${head(title, { ...o, extraHead: (o.extraHead || "") + (o.analytics ? UI.analytics || "" : "") })}<body><div class="wrap">${body}${footer(o.foot || "en")}</div><script src="/assets/app.js" defer></script></body></html>`;
 
 // ---------- new paste ----------
 export type Limits = { anonBytes: number; tokenBytes: number };
@@ -229,6 +230,7 @@ ${o.error ? `<p class="err" role="alert">${esc(o.error)}</p>` : ""}
 </main>`;
   return page(UI.brand.siteTitle, body, {
     index: true,
+    analytics: true,
     description: UI.brand.description,
     css: CODE_CSS + HOME_CSS,
     extraHead: o.siteKey ? `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&amp;onload=leafTurnstile" async defer></script>` : "",
@@ -306,14 +308,14 @@ export function burnGatePage(p: Pick<PasteMeta, "id" | "title" | "lines" | "size
 
 const NF_CSS = `.nf{min-height:62vh;display:grid;place-items:center;text-align:center}.nf>div{max-width:34em}.nf p{color:var(--ink60);margin:14px 0 28px;font-size:17px}.nf form{display:inline}`;
 
-export function messagePage(o: { title: string; label: string; h1: string; text: string; action?: string; deleted?: string }) {
+export function messagePage(o: { title: string; label: string; h1: string; text: string; action?: string; deleted?: string; analytics?: boolean }) {
   const body = `${topbar()}
 <main class="nf"${o.deleted ? ` data-deleted="${esc(o.deleted)}"` : ""}><div><span class="label">${esc(o.label)}</span><h1 style="margin-top:12px">${o.h1}</h1><p>${o.text}</p>${o.action ?? `<a class="btn" href="/">New paste</a>`}</div></main>`;
-  return page(o.title, body, { css: NF_CSS });
+  return page(o.title, body, { css: NF_CSS, analytics: o.analytics });
 }
 
 export const notFoundPage = () =>
-  messagePage({ title: "Not found · leaf.", label: "404", h1: "This paste is gone<em>.</em>", text: "It may have expired or been deleted, or the link is incomplete." });
+  messagePage({ analytics: true, title: "Not found · leaf.", label: "404", h1: "This paste is gone<em>.</em>", text: "It may have expired or been deleted, or the link is incomplete." });
 
 export const deleteConfirmPage = (p: { id: string; title: string | null; key: string }) =>
   messagePage({

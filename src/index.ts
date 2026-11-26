@@ -9,12 +9,13 @@ import { brandFrom } from "./brand";
 import { detectLanguage, highlightLines, LANGUAGES, normalizeLang } from "./highlight";
 import { burnGatePage, configureUi, createdPage, deleteConfirmPage, deletedPage, homePage, llmsTxt, messagePage, notFoundPage, viewPage, type Limits, type PasteMeta } from "./html";
 import { LEGAL_PATHS, legalPage, parseLegal } from "./legal";
+import { phCapture, phException, phProxy, phScriptTag, type PostHogEnv } from "./posthog";
 import {
   byteLength, cleanContent, expirySeconds, ID_LENGTH, ID_RE, isNamedToken, lineCount, MASTER_OWNER, randomString, requestToken, robotsTxt,
   sanitizeTitle, sha256Hex, timingSafeEqual, tokenUsable, type Principal,
 } from "./util";
 
-export interface Env {
+export interface Env extends PostHogEnv {
   DB: D1Database;
   PASTES: R2Bucket;
   /** Master token (secret). Optional: without it only anonymous pastes and named tokens work. */
@@ -39,6 +40,13 @@ export interface Env {
 }
 
 type Row = PasteMeta & { delete_hash: string; owner: string | null; views: number };
+
+/** Paths whose address may reach PostHog as is; every other path (a paste, a delete link) is sent as "/[private]". */
+const PH_KEEP = /^\/(privacy|datenschutz|imprint|impressum)?$/;
+
+/** Rough size class for events, never the exact size. */
+const sizeClass = (b: number) => (b < 1024 ? "<1KB" : b < 10240 ? "<10KB" : b < 102400 ? "<100KB" : b < 1048576 ? "<1MB" : ">=1MB");
+const viaOf = (who: Principal | null) => (who ? (who.master ? "master" : "token") : "anon");
 
 const now = () => Math.floor(Date.now() / 1000);
 const ip = (req: Request) => req.headers.get("cf-connecting-ip") || "unknown";
@@ -149,7 +157,7 @@ async function anonQuotaLeft(env: Env) {
 type Draft = { content: string; title: string; lang: string; expires: string; burn: boolean };
 type Created = { id: string; url: string; raw: string; deleteUrl: string; title: string; lang: string; expiresAt: number | null; burn: boolean; owned: boolean };
 
-async function createPaste(env: Env, origin: string, d: Draft, who: Principal | null): Promise<Created | { error: string; status: number }> {
+async function createPaste(env: Env, ctx: ExecutionContext, origin: string, source: "web" | "api", d: Draft, who: Principal | null): Promise<Created | { error: string; status: number }> {
   const c = cleanContent(d.content);
   if (!c.ok) return { error: c.error, status: 422 };
   const size = byteLength(c.text);
@@ -179,6 +187,8 @@ async function createPaste(env: Env, origin: string, d: Draft, who: Principal | 
     await env.PASTES.delete([`p/${id}`, `h/${id}`]).catch(() => {}); // no orphaned text without a row
     throw e;
   }
+  // no content, title, id or token: only classes that say how leaf is used
+  phCapture(env, ctx, "paste_created", { size: sizeClass(size), lang, ttl_hours: ttl == null ? null : Math.round(ttl / 3600), burn: d.burn, titled: !!title, via: viaOf(who), source });
   return { id, url: `${origin}/${id}`, raw: `${origin}/${id}/raw`, deleteUrl: `${origin}/d/${id}/${deleteKey}`, title, lang, expiresAt, burn: d.burn, owned: !!who };
 }
 
@@ -191,7 +201,7 @@ async function handleForm(req: Request, env: Env, ctx: ExecutionContext, origin:
   const f = await new Response(raw, { headers: { "content-type": ct } }).formData();
   const field = (k: string) => (typeof f.get(k) === "string" ? (f.get(k) as string) : "");
   const draft: Draft = { content: field("content"), title: field("title"), lang: field("lang"), expires: field("expires"), burn: field("burn") === "1" };
-  const again = (error: string, status: number) => html(homePage({ limits: limits(env), siteKey: siteKey(env), error, draft: { ...draft, content: draft.content.slice(0, limits(env).tokenBytes) } }), status);
+  const again = (error: string, status: number) => (phCapture(env, ctx, "paste_refused", { status, source: "web" }), html(homePage({ limits: limits(env), siteKey: siteKey(env), error, draft: { ...draft, content: draft.content.slice(0, limits(env).tokenBytes) } }), status));
 
   const who = await authenticate(requestToken(req, field("token")), env, ctx);
   if (who === null) {
@@ -203,13 +213,13 @@ async function handleForm(req: Request, env: Env, ctx: ExecutionContext, origin:
     if (!(await verifyTurnstile(env, field("cf-turnstile-response"), req))) return again("The bot check didn't go through. Try again.", 403);
     if (!(await anonQuotaLeft(env))) return again("leaf has taken all the anonymous pastes it can for today. Try again tomorrow, or use a token.", 503);
   }
-  const r = await createPaste(env, origin, draft, who ?? null);
+  const r = await createPaste(env, ctx, origin, "web", draft, who ?? null);
   if ("error" in r) return again(r.error, r.status);
   return html(createdPage(r));
 }
 
 /** API: raw body (curl --data-binary) or JSON. Needs a token; anonymous pastes go through the web form and Turnstile. */
-async function handleApiCreate(req: Request, env: Env, origin: string, who: Principal) {
+async function handleApiCreate(req: Request, env: Env, ctx: ExecutionContext, origin: string, who: Principal) {
   const ct = req.headers.get("content-type") || "";
   const body = await readCapped(req, limits(env).tokenBytes * 2);
   if (body == null) return apiError(413, `the limit is ${Math.round(limits(env).tokenBytes / 1024)} KB`);
@@ -223,8 +233,8 @@ async function handleApiCreate(req: Request, env: Env, origin: string, who: Prin
     const h = req.headers;
     d = { content: body, title: h.get("x-title") || "", lang: h.get("x-lang") || "", expires: h.get("x-expires") || "", burn: h.get("x-burn") === "1" || h.get("x-burn") === "true" };
   }
-  const r = await createPaste(env, origin, d, who);
-  if ("error" in r) return apiError(r.status, r.error);
+  const r = await createPaste(env, ctx, origin, "api", d, who);
+  if ("error" in r) { phCapture(env, ctx, "paste_refused", { status: r.status, source: "api" }); return apiError(r.status, r.error); }
   return json({ id: r.id, url: r.url, raw: r.raw, delete: r.deleteUrl, lang: r.lang, expires_at: r.expiresAt, burn: r.burn }, 201);
 }
 
@@ -315,15 +325,18 @@ async function handleList(req: Request, env: Env, origin: string, who: Principal
 
 // ---------- cleanup ----------
 async function cleanup(env: Env) {
+  let expired = 0;
   for (let round = 0; round < 20; round++) {
     const { results } = await env.DB.prepare("SELECT id FROM pastes WHERE expires_at IS NOT NULL AND expires_at <= ? LIMIT 500").bind(now()).all<{ id: string }>();
     if (!results.length) break;
     const ids = results.map((r) => r.id);
+    expired += ids.length;
     await env.PASTES.delete(ids.flatMap(objectKeys));
     await env.DB.batch(ids.map((id) => env.DB.prepare("DELETE FROM pastes WHERE id = ?").bind(id)));
   }
   const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
   await env.DB.prepare("DELETE FROM anon_usage WHERE day < ?").bind(weekAgo).run();
+  return expired;
 }
 
 const siteKey = (env: Env) => (env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY : null);
@@ -334,6 +347,8 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const m = req.method;
   const get = m === "GET" || m === "HEAD";
+  const ph = await phProxy(req, env, { app: "leaf", keep: PH_KEEP });
+  if (ph) return ph;
 
   if (path === "/" && get) return html(homePage({ limits: limits(env), siteKey: siteKey(env) }), 200, "public, max-age=300");
   if (path === "/new" && m === "POST") return handleForm(req, env, ctx, url.origin);
@@ -350,7 +365,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   if (LEGAL_PATHS[path] && get) {
     const legal = parseLegal(env.LEGAL);
     if (!legal) return html(notFoundPage(), 404);
-    return html(legalPage(LEGAL_PATHS[path], legal, { abuseEmail: env.ABUSE_EMAIL || null, turnstile: !!siteKey(env) }), 200, "public, max-age=3600");
+    return html(legalPage(LEGAL_PATHS[path], legal, { abuseEmail: env.ABUSE_EMAIL || null, turnstile: !!siteKey(env), analytics: !!phScriptTag(env) }), 200, "public, max-age=3600");
   }
 
   if (path.startsWith("/api/")) {
@@ -359,14 +374,14 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       if (who === null && env.AUTH_RL && !(await env.AUTH_RL.limit({ key: ip(req) })).success) return apiError(429, "too many attempts, wait a minute");
       return apiError(401, "send Authorization: Bearer <token>. Without a token, use the form on the start page.");
     }
-    if (path === "/api/pastes" && m === "POST") return handleApiCreate(req, env, url.origin, who);
+    if (path === "/api/pastes" && m === "POST") return handleApiCreate(req, env, ctx, url.origin, who);
     if (path === "/api/pastes" && m === "GET") return handleList(req, env, url.origin, who);
     const one = /^\/api\/pastes\/([A-Za-z0-9]+)$/.exec(path);
     if (one) {
       const row = await getPaste(env, one[1]);
       // someone else's paste looks exactly like a missing one
       if (!row || !(who.master || row.owner === who.owner)) return apiError(404, "not found");
-      if (m === "DELETE") { await deletePaste(env, row.id); return json({ deleted: row.id }); }
+      if (m === "DELETE") { await deletePaste(env, row.id); phCapture(env, ctx, "paste_deleted", { via: "api" }); return json({ deleted: row.id }); }
       if (m === "GET") { const { delete_hash: _d, owner: _o, ...pub } = row; return json({ ...pub, burn: !!row.burn, url: `${url.origin}/${row.id}`, raw: `${url.origin}/${row.id}/raw` }); }
     }
     if (path === "/api/languages" && m === "GET") return json({ languages: LANGUAGES });
@@ -383,6 +398,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     // GET only asks: link previews that open a delete link must not delete anything
     if (get) return html(deleteConfirmPage({ id: row.id, title: row.title, key: del[2] }));
     await deletePaste(env, row.id);
+    phCapture(env, ctx, "paste_deleted", { via: "delete_link" });
     return m === "DELETE" ? json({ deleted: row.id }) : html(deletedPage(row.id));
   }
 
@@ -406,7 +422,7 @@ const INDEXABLE = new Set(["/", "/robots.txt", "/sitemap.xml", "/llms.txt", "/og
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     try {
-      configureUi({ legal: !!parseLegal(env.LEGAL), abuseEmail: env.ABUSE_EMAIL || null, brand: brandFrom(env), origin: new URL(req.url).origin });
+      configureUi({ legal: !!parseLegal(env.LEGAL), abuseEmail: env.ABUSE_EMAIL || null, brand: brandFrom(env), origin: new URL(req.url).origin, analytics: phScriptTag(env) });
       const res = await route(req, env, ctx);
       const path = new URL(req.url).pathname;
       if (INDEXABLE.has(path) || path.startsWith("/assets/")) return res;
@@ -417,10 +433,16 @@ export default {
       return r;
     } catch (e) {
       console.error("unhandled", String(e), (e as Error)?.stack);
+      phException(env, ctx, e);
       return apiError(500, "internal error");
     }
   },
   async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(cleanup(env));
+    ctx.waitUntil(
+      cleanup(env).then(
+        (expired) => phCapture(env, null, "cleanup_ran", { expired }),
+        (e) => { console.error("cleanup", String(e)); return phException(env, null, e, { job: "cleanup" }); },
+      ),
+    );
   },
 } satisfies ExportedHandler<Env>;
