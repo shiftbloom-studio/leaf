@@ -1,6 +1,6 @@
 {
   "name": "leaf",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A pastebin with syntax highlighting for Cloudflare Workers",
   "scripts": {
     "dev": "npm run build:client && wrangler dev",
