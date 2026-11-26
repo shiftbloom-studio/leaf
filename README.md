@@ -1,10 +1,12 @@
 # leaf.
 
+Share code by link. Syntax highlighting, burn after reading, and no account needed.
+
+**Live:** [leaf.shiftbloom.studio](https://leaf.shiftbloom.studio) · **License:** AGPL-3.0-or-later
+
 leaf is a pastebin on one Cloudflare Worker. Paste code or a log, pick how long it should live, and you get a link with 12 random characters. The page shows the text with syntax highlighting and line numbers; the raw text and a download are one click away.
 
-It runs at [leaf.shiftbloom.studio](https://leaf.shiftbloom.studio) and is made by [shiftbloom studio](https://shiftbloom.studio). The code is licensed under AGPL-3.0-or-later.
-
-## What it does
+## Features
 
 - Anyone can paste without an account. Anonymous pastes are deleted after 10 minutes, 1 hour or 12 hours, never later, and can be up to 256 KB.
 - Pastes are only reachable by their link. There's no public list, no search, and the pages send `noindex`.
@@ -52,6 +54,13 @@ Cron (hourly) → delete expired pastes from R2 and D1
 | `LEGAL` | var (JSON) | – | operator details for the imprint and privacy pages |
 | `BRAND`, `OPERATOR_*`, `SOURCE_URL` | vars | – | who runs the instance, link to your fork |
 
+## Tech stack
+
+- TypeScript, bundled with esbuild. The language detector for the editor is built as a separate browser script.
+- Cloudflare Workers with R2, D1, rate limiting and a Cron Trigger, plus Turnstile for anonymous pastes
+- highlight.js on the server, so pages need no script to look right
+- Node.js 26 for builds and tests, Vitest for tests. `npm run check` runs the typecheck, the tests and the build.
+
 ## Self-hosting
 
 You need a Cloudflare account with Workers Paid (for rate limiting and CPU time) and Node.js 26.
@@ -66,11 +75,13 @@ npx wrangler secret put TURNSTILE_SECRET # optional, with TURNSTILE_SITE_KEY in 
 npm run deploy
 ```
 
-To deploy on every push instead, connect the repository with Workers Builds. leaf.shiftbloom.studio uses the build command `npm run check` and a deploy command that writes the D1 id from a build variable into a copy of `wrangler.jsonc` and runs `npx wrangler deploy --keep-vars`, so the dashboard keeps the imprint and Turnstile vars.
-
 Set a custom domain in `routes` in `wrangler.jsonc`. `workers_dev` and `preview_urls` are off on purpose: those URLs would skip your zone's WAF rules.
 
 Without `TURNSTILE_SECRET`, anonymous pastes only go through the rate limits. Put Turnstile in front of any public instance.
+
+### Deploy with Workers Builds
+
+To deploy on every push to `main` instead, connect the repository to the Worker in the Cloudflare dashboard (Settings > Build). No API token is stored on GitHub. leaf.shiftbloom.studio uses the build command `npm run check` and a deploy command that writes the D1 id from a build variable into a copy of `wrangler.jsonc` and runs `npx wrangler deploy --keep-vars`, so the dashboard keeps the imprint and Turnstile vars.
 
 ### Imprint and privacy policy
 
@@ -82,12 +93,13 @@ The pages `/imprint`, `/impressum`, `/privacy` and `/datenschutz` appear when th
 
 Optional fields: `business`, `phone`, `vatId`. Keep this in your deploy config, not in the repository. The privacy policy describes this code as it is; check it against your own setup before you publish it.
 
-### Local development
+## Development
 
 ```sh
 cp .dev.vars.example .dev.vars
 npx wrangler d1 migrations apply leaf-db --local
 npm run dev
+npm run check
 ```
 
 ## API tokens
@@ -137,8 +149,16 @@ The UI follows the shiftbloom studio brand book v2: white paper, ink text, Bloom
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports go to [SECURITY.md](SECURITY.md), not to public issues.
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+Please don't report vulnerabilities in public issues. Use GitHub's private vulnerability reporting on this repository or email [safety@shiftbloom.studio](mailto:safety@shiftbloom.studio). [SECURITY.md](SECURITY.md) has the details.
 
 ## License
 
 leaf is free software under the GNU Affero General Public License, version 3 or later. If you run a changed version for other people, offer them its source; set `SOURCE_URL` and the footer links to it.
+
+---
+
+leaf is part of [shiftbloom studio](https://shiftbloom.studio), an open studio from Hamburg. All of our apps are open source at [github.com/shiftbloom-studio](https://github.com/shiftbloom-studio).
