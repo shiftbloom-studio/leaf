@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from "vitest";
-import { cleanContent, expirySeconds, ID_ALPHABET, ID_LENGTH, ID_RE, isNamedToken, lineCount, randomString, robotsTxt, sanitizeTitle, tokenUsable } from "../src/util";
+import { cleanContent, expirySeconds, ID_ALPHABET, ID_LENGTH, ID_RE, isNamedToken, lineCount, randomString, robotsTxt, sanitizeTitle, tokenUsable, trimTrailingSlashes } from "../src/util";
 
 describe("ids", () => {
   it("are 12 characters from the unambiguous alphabet", () => {
@@ -64,5 +64,21 @@ describe("robots.txt", () => {
     const txt = robotsTxt("https://leaf.example");
     expect(txt).toContain("Sitemap: https://leaf.example/sitemap.xml");
     expect(txt.indexOf("Allow: /sitemap.xml")).toBeLessThan(txt.indexOf("Disallow: /"));
+  });
+});
+
+describe("trimTrailingSlashes", () => {
+  it("drops only trailing slashes", () => {
+    expect(trimTrailingSlashes("/abc/")).toBe("/abc");
+    expect(trimTrailingSlashes("/abc///")).toBe("/abc");
+    expect(trimTrailingSlashes("/a/b")).toBe("/a/b");
+    expect(trimTrailingSlashes("///")).toBe("");
+    expect(trimTrailingSlashes("")).toBe("");
+  });
+  it("stays fast on long runs of slashes", () => {
+    const s = "/".repeat(100_000) + "a";
+    const t = performance.now();
+    expect(trimTrailingSlashes(s)).toBe(s);
+    expect(performance.now() - t).toBeLessThan(50);
   });
 });

@@ -12,7 +12,7 @@ import { LEGAL_PATHS, legalPage, parseLegal } from "./legal";
 import { phCapture, phException, phProxy, phScriptTag, type PostHogEnv } from "./posthog";
 import {
   byteLength, cleanContent, expirySeconds, ID_LENGTH, ID_RE, isNamedToken, lineCount, MASTER_OWNER, randomString, requestToken, robotsTxt,
-  sanitizeTitle, sha256Hex, timingSafeEqual, tokenUsable, type Principal,
+  sanitizeTitle, sha256Hex, timingSafeEqual, tokenUsable, trimTrailingSlashes, type Principal,
 } from "./util";
 
 export interface Env extends PostHogEnv {
@@ -195,7 +195,7 @@ async function createPaste(env: Env, ctx: ExecutionContext, origin: string, sour
     throw e;
   }
   // no content, title, id or token: only classes that say how leaf is used
-  phCapture(env, ctx, "paste_created", { size: sizeClass(size), lang, ttl_hours: ttl == null ? null : Math.round(ttl / 3600), burn: d.burn, titled: !!title, via: viaOf(who), source });
+  void phCapture(env, ctx, "paste_created", { size: sizeClass(size), lang, ttl_hours: ttl == null ? null : Math.round(ttl / 3600), burn: d.burn, titled: !!title, via: viaOf(who), source });
   return { id, url: `${origin}/${id}`, raw: `${origin}/${id}/raw`, deleteUrl: `${origin}/d/${id}/${deleteKey}`, title, lang, expiresAt, burn: d.burn, owned: !!who };
 }
 
@@ -241,7 +241,7 @@ async function handleApiCreate(req: Request, env: Env, ctx: ExecutionContext, or
     d = { content: body, title: h.get("x-title") || "", lang: h.get("x-lang") || "", expires: h.get("x-expires") || "", burn: h.get("x-burn") === "1" || h.get("x-burn") === "true" };
   }
   const r = await createPaste(env, ctx, origin, "api", d, who);
-  if ("error" in r) { phCapture(env, ctx, "paste_refused", { status: r.status, source: "api" }); return apiError(r.status, r.error); }
+  if ("error" in r) { void phCapture(env, ctx, "paste_refused", { status: r.status, source: "api" }); return apiError(r.status, r.error); }
   return json({ id: r.id, url: r.url, raw: r.raw, delete: r.deleteUrl, lang: r.lang, expires_at: r.expiresAt, burn: r.burn }, 201);
 }
 
@@ -351,7 +351,7 @@ const siteKey = (env: Env) => (env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET ? 
 // ---------- router ----------
 async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/\/+$/, "") || "/";
+  const path = trimTrailingSlashes(url.pathname) || "/";
   const m = req.method;
   const get = m === "GET" || m === "HEAD";
   const ph = await phProxy(req, env, { app: "leaf", keep: PH_KEEP });
@@ -388,7 +388,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       const row = await getPaste(env, one[1]);
       // someone else's paste looks exactly like a missing one
       if (!row || !(who.master || row.owner === who.owner)) return apiError(404, "not found");
-      if (m === "DELETE") { await deletePaste(env, row.id); phCapture(env, ctx, "paste_deleted", { via: "api" }); return json({ deleted: row.id }); }
+      if (m === "DELETE") { await deletePaste(env, row.id); void phCapture(env, ctx, "paste_deleted", { via: "api" }); return json({ deleted: row.id }); }
       if (m === "GET") { const { delete_hash: _d, owner: _o, ...pub } = row; return json({ ...pub, burn: !!row.burn, url: `${url.origin}/${row.id}`, raw: `${url.origin}/${row.id}/raw` }); }
     }
     if (path === "/api/languages" && m === "GET") return json({ languages: LANGUAGES });
@@ -405,7 +405,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     // GET only asks: link previews that open a delete link must not delete anything
     if (get) return html(deleteConfirmPage({ id: row.id, title: row.title, key: del[2] }));
     await deletePaste(env, row.id);
-    phCapture(env, ctx, "paste_deleted", { via: "delete_link" });
+    void phCapture(env, ctx, "paste_deleted", { via: "delete_link" });
     return m === "DELETE" ? json({ deleted: row.id }) : html(deletedPage(row.id));
   }
 
@@ -440,7 +440,7 @@ export default {
       return r;
     } catch (e) {
       console.error("unhandled", String(e), (e as Error)?.stack);
-      phException(env, ctx, e);
+      void phException(env, ctx, e);
       return apiError(500, "internal error");
     }
   },
