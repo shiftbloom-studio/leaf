@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from "vitest";
-import { cleanContent, expirySeconds, ID_ALPHABET, ID_LENGTH, ID_RE, isNamedToken, lineCount, randomString, sanitizeTitle, tokenUsable } from "../src/util";
+import { cleanContent, expirySeconds, ID_ALPHABET, ID_LENGTH, ID_RE, isNamedToken, lineCount, randomString, robotsTxt, sanitizeTitle, tokenUsable } from "../src/util";
 
 describe("ids", () => {
   it("are 12 characters from the unambiguous alphabet", () => {
@@ -56,5 +56,13 @@ describe("tokens", () => {
     expect(tokenUsable({ expires_at: 10, revoked_at: null }, 20)).toBe(false);
     expect(tokenUsable({ expires_at: null, revoked_at: 5 })).toBe(false);
     expect(tokenUsable(null)).toBe(false);
+  });
+});
+
+describe("robots.txt", () => {
+  it("lets crawlers fetch the sitemap it advertises", () => {
+    const txt = robotsTxt("https://leaf.example");
+    expect(txt).toContain("Sitemap: https://leaf.example/sitemap.xml");
+    expect(txt.indexOf("Allow: /sitemap.xml")).toBeLessThan(txt.indexOf("Disallow: /"));
   });
 });
