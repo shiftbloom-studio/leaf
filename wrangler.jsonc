@@ -8,7 +8,7 @@
   // the link preview image is bundled as bytes
   "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }],
   "compatibility_date": "2026-11-01",
-  "observability": { "enabled": true },
+  "observability": { "enabled": true, "issues": { "enabled": true } },
 
   // Serve on your own (sub)domain. The zone must be on the same Cloudflare account.
   // "routes": [{ "pattern": "paste.example.com", "custom_domain": true }],
