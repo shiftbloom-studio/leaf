@@ -57,9 +57,14 @@ const limits = (env: Env): Limits => ({
 });
 
 // ---------- responses ----------
-const CSP = [
+/**
+ * Page CSP. The per-response nonce is never used by leaf's own markup (all of leaf's scripts are files on
+ * 'self'); it is there for Cloudflare, which reads it from this header and adds it to the inline snippet it
+ * injects for bot detection and challenge pre-clearance (/cdn-cgi/challenge-platform/), which would be blocked otherwise.
+ */
+const pageCsp = (nonce: string) => [
   "default-src 'none'",
-  "script-src 'self' https://challenges.cloudflare.com",
+  `script-src 'self' 'nonce-${nonce}' https://challenges.cloudflare.com`,
   "frame-src https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
@@ -70,10 +75,12 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+const newNonce = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+
 const SECURITY = { "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "strict-transport-security": "max-age=31536000; includeSubDomains" };
 
 const html = (body: string, status = 200, cache = "no-store") =>
-  new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": CSP, "cache-control": cache, ...SECURITY } });
+  new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": pageCsp(newNonce()), "cache-control": cache, ...SECURITY } });
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data, null, 2) + "\n", { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...SECURITY } });
