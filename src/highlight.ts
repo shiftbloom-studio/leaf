@@ -101,7 +101,7 @@ const SIGNALS: [string, RegExp][] = [
   ["rust", /^\s*(pub\s+)?fn\s+\w+[^\n]*(->|\{)[\s\S]*(\blet\s+(mut\s+)?\w+|::|println!)/m],
   ["python", /^\s*(def\s+\w+\s*\(.*\)\s*(->\s*[^:]+)?:|class\s+\w+(\([^)]*\))?\s*:|elif\s.+:|except(\s+\w+(\s+as\s+\w+)?)?\s*:|from\s+[\w.]+\s+import\s|for\s+\w+(\s*,\s*\w+)*\s+in\s+.+:|with\s+.+\s+as\s+\w+\s*:)\s*$/m],
   ["python", /^(from\s+[\w.]+\s+import\s+[\w*(]|import\s+[\w.]+(\s+as\s+\w+)?\s*$)/m],
-  ["typescript", /^\s*(export\s+)?(interface|type)\s+\w+(<[^>]*>)?\s*(=|\{)|\b(const|let|function)\b[^\n]*:\s*(string|number|boolean|unknown|void)\b/m],
+  ["typescript", /(?:^\s*(export\s+)?(interface|type)\s+\w+(<[^>]*>)?\s*(=|\{))|\b(const|let|function)\b[^\n]*:\s*(string|number|boolean|unknown|void)\b/m],
   ["javascript", /^\s*(const|let|var)\s+[\w{}\[\], ]+\s*=|\bconsole\.log\(|=>\s*[{(]|^\s*(import\s.+\sfrom\s+['"]|module\.exports\b|require\(['"])/m],
   ["sql", /^\s*(SELECT\s.+\sFROM\s|INSERT\s+INTO\s|CREATE\s+(TABLE|INDEX|VIEW)\s|UPDATE\s+\w+\s+SET\s|DELETE\s+FROM\s|ALTER\s+TABLE\s)/im],
   ["cpp", /^\s*#include\s*<[\w./]+>[\s\S]*(\bstd::|\bclass\s|\btemplate\s*<|\bnamespace\s)/m],

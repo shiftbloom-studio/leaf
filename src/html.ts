@@ -2,7 +2,7 @@
 import { bloomSvg } from "./bloom";
 import { brandFrom, type Brand } from "./brand";
 import { LANGUAGES } from "./highlight";
-import { fmtSize } from "./util";
+import { fmtSize, trimTrailingSlashes } from "./util";
 
 /* leaf: UI following the shiftbloom studio brand book v2.
  * Paper and ink with one loud flower. Code always sits on ink; Bloom Red marks actions and seeds,
@@ -101,7 +101,7 @@ function landingMeta(title: string, description: string) {
     isAccessibleForFree: true,
     license: "https://www.gnu.org/licenses/agpl-3.0.html",
     offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
-    ...(o ? { publisher: { "@type": "Organization", ...(o.url ? { "@id": `${o.url.replace(/\/+$/, "")}/#org`, url: o.url } : {}), name: o.name } } : {}),
+    ...(o ? { publisher: { "@type": "Organization", ...(o.url ? { "@id": `${trimTrailingSlashes(o.url)}/#org`, url: o.url } : {}), name: o.name } } : {}),
     sameAs: [UI.brand.sourceUrl],
   };
   const img = `${origin}/og.png`;

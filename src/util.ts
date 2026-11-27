@@ -120,3 +120,10 @@ export const robotsTxt = (origin: string) =>
     `Sitemap: ${origin}/sitemap.xml`,
     "",
   ].join("\n");
+
+/** Drops trailing slashes in linear time (a `/\/+$/` replace backtracks on long runs of slashes). */
+export function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return end === s.length ? s : s.slice(0, end);
+}
