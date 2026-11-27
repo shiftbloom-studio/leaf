@@ -107,6 +107,7 @@ export const robotsTxt = (origin: string) =>
     "Allow: /$",
     "Allow: /llms.txt",
     "Allow: /og.png",
+    "Allow: /sitemap.xml",
     "Allow: /privacy",
     "Allow: /imprint",
     "Allow: /datenschutz",
